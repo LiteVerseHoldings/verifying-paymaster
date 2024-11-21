@@ -4,6 +4,7 @@ out = "out"
 libs = ["lib"]
 
 optimizer = true
+via_ir = true
 
 [fmt]
   line_length = 128

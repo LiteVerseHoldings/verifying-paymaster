@@ -71,12 +71,14 @@ contract VerifyingPaymasterTest is Test {
         
         bytes32 hash = paymaster.getHash(
             userOp,
-            paymasterData
+            paymasterData,
+            20000,
+            10000
         );
         // Replace with the expected hash value
         assertEq(
             hash,
-            0xc372ec6e68f9f54f8a4aa771437e3852d647b56011383d36389782a755caa2da
+            0x70442f07dffa945904a885c0a2ad4af27565d7ce957dbc12ac21de82c0405ce6
         );
     }
 
@@ -102,7 +104,9 @@ contract VerifyingPaymasterTest is Test {
             MessageHashUtils.toEthSignedMessageHash(
                 paymaster.getHash(
                     userOp,
-                    paymasterData
+                    paymasterData,
+                    100000,
+                    100000
                 )
             )
         );
@@ -342,7 +346,9 @@ contract VerifyingPaymasterTest is Test {
             MessageHashUtils.toEthSignedMessageHash(
                 paymaster.getHash(
                     userOp,
-                    paymasterData
+                    paymasterData,
+                    100000,
+                    100000
                 )
             )
         );

@@ -15,7 +15,7 @@ import {SafeTransferLib} from "@solady/utils/SafeTransferLib.sol";
 
 /// @title VerifyingPaymaster
 ///
-/// @notice ERC4337 Paymaster implementation compatible with Entrypoint v0.6.
+/// @notice ERC4337 Paymaster implementation compatible with Entrypoint v0.7.
 ///
 /// @dev See https://eips.ethereum.org/EIPS/eip-4337#extension-paymasters.
 ///
@@ -217,7 +217,7 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
     /// @param paymasterData PaymasterData struct
     ///
     /// @return bytes32 The hash to check the signature against
-    function getHash(PackedUserOperation calldata userOp, PaymasterData memory paymasterData) public view returns (bytes32) {
+    function getHash(PackedUserOperation calldata userOp, PaymasterData memory paymasterData, uint256 paymasterValidationGasLimit, uint256 postOpGasLimit) public view returns (bytes32) {
         // can't use userOp.hash(), since it contains also the paymasterAndData itself.
         return keccak256(
             abi.encode(
@@ -230,7 +230,9 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
                 userOp.gasFees,
                 block.chainid,
                 address(this),
-                paymasterData
+                paymasterData,
+                paymasterValidationGasLimit,
+                postOpGasLimit
             )
         );
     }
@@ -278,7 +280,8 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
         }
 
         // Check signature is correct
-        bytes32 hash = MessageHashUtils.toEthSignedMessageHash(getHash(userOp, paymasterData));
+        (, uint256 paymasterValidationGasLimit, uint256 postOpGasLimit) = UserOperationLib.unpackPaymasterStaticFields(userOp.paymasterAndData);
+        bytes32 hash = MessageHashUtils.toEthSignedMessageHash(getHash(userOp, paymasterData, paymasterValidationGasLimit, postOpGasLimit));
         address signedBy = ECDSA.recover(hash, signature);
         if (signedBy != verifyingSigner && signedBy != pendingVerifyingSigner) {
             return ("", _packValidationData(true, paymasterData.validUntil, paymasterData.validAfter));
@@ -301,7 +304,7 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
             if (paymasterData.precheckBalance || paymasterData.prepaymentRequired) {
                 uint256 maxFeePerGas = userOp.unpackMaxFeePerGas();
                 uint256 maxTokenCost =
-                    _calculateTokenCost(maxCost + paymasterData.postOpGas * maxFeePerGas, paymasterData.exchangeRate);
+                    _calculateTokenCost(maxCost, paymasterData.exchangeRate);
 
                 // Optionally check if sender has enough token balance if prepayment isnt required
                 if (paymasterData.precheckBalance) {
