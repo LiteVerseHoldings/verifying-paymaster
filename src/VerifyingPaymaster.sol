@@ -135,6 +135,9 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
     /// @notice Error for not having set verifying signer for rotation
     error NoPendingSigner();
 
+    /// @notice Error for postOpGas limit exceeded
+    error PostOpGasLimitExceeded();
+
     /// @notice Constructor for the paymaster setting the entrypoint, verifyingSigner and owner
     ///
     /// @param entryPoint the entrypoint contract
@@ -269,6 +272,11 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
     {
         (PaymasterData memory paymasterData, bytes memory signature) = parsePaymasterData(userOp.paymasterAndData[UserOperationLib.PAYMASTER_DATA_OFFSET:]);
 
+        // Reject if postOpGas is greater than the userOp's postOpGasLimit
+        if (paymasterData.postOpGas > userOp.unpackPostOpGasLimit()) {
+            revert PostOpGasLimitExceeded();
+        }
+        
         // Reject if should restrict bundlers and bundler not on allowlist 
         if (!paymasterData.allowAnyBundler && !isBundlerAllowed[tx.origin]) {
             revert BundlerNotAllowed(tx.origin);
@@ -302,7 +310,6 @@ contract VerifyingPaymaster is BasePaymaster, Ownable2Step {
         // Perform additional token logic
         if (paymasterData.token != address(0)) {
             if (paymasterData.precheckBalance || paymasterData.prepaymentRequired) {
-                uint256 maxFeePerGas = userOp.unpackMaxFeePerGas();
                 uint256 maxTokenCost =
                     _calculateTokenCost(maxCost, paymasterData.exchangeRate);
 
