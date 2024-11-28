@@ -67,6 +67,7 @@ contract VerifyingPaymasterTest is Test {
 
     function test_getHash_isCorrect() public view {
         PackedUserOperation memory userOp = createUserOp();
+        userOp.sender = 0x20D80a97f40470Ed1c114335061d54eC29c65dCD;
         VerifyingPaymaster.PaymasterData memory paymasterData = createPaymasterData();
         
         bytes32 hash = paymaster.getHash(
