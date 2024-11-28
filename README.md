@@ -34,11 +34,9 @@ Contract addresses for V06 VerifyingPaymaster:
 
 Contract addresses for V07 VerifyingPaymaster:
 
-- Base: ```TBD```
-- Base Sepolia: ```0xd70C498E7302620c995Ac892F715B1a3099d637E``` (Will change)
+- Base & Base Sepolia: ```0xdCBE0C1A00e4Cf24AE77c52125e6e6b4F7C6Db4e```
 
 ## Development
-
 This project uses [Forge](https://github.com/foundry-rs/forge), a fast and flexible Ethereum testing framework.
 
 After cloning the repo, installing deps and building the contracts you can run the tests.
