@@ -35,6 +35,7 @@ contract VerifyingPaymasterTest is Test {
     address constant ACCOUNT_OWNER = 0x39c0Bb04Bf6B779ac994f6A5211204e3Dbe16741;
     uint256 constant ACCOUNT_OWNER_KEY =
         0x4034df11fcc455209edcb8948449a4dff732376dab6d03dc2d099d0084b0f023;
+    address constant BENEFICIARY = address(0xBEEF);
 
     function setUp() public {
         entrypoint = new EntryPoint();
@@ -70,7 +71,7 @@ contract VerifyingPaymasterTest is Test {
         // Replace with the expected hash value
         assertEq(
             hash,
-            0x2a41f6983b8babd6ae1c0f5e1470d41bd14df2e75a7daaf53b40c7441ae345e0
+            0xb1b9edbb914bf8387344bcba22a3a8d42dcae423cdfa707036495f64e12bd490
         );
     }
 
@@ -183,7 +184,7 @@ contract VerifyingPaymasterTest is Test {
 
         UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
     }
 
     function test_entrypointHandleOps_success_forERC20SponsorshipInPostOp() public {
@@ -202,7 +203,7 @@ contract VerifyingPaymasterTest is Test {
 
         UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
 
         uint256 postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
@@ -221,7 +222,7 @@ contract VerifyingPaymasterTest is Test {
         ops[0] = userOp;
 
         vm.expectRevert(); 
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
     }
 
     function test_entrypointHandleOps_success_ForERC20SponsorshipInValidationIfPrepaymentRequired() public {
@@ -242,7 +243,7 @@ contract VerifyingPaymasterTest is Test {
 
         UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
 
         uint256 postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
@@ -257,7 +258,7 @@ contract VerifyingPaymasterTest is Test {
 
         signUserOp(userOp);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
 
         postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
@@ -279,7 +280,7 @@ contract VerifyingPaymasterTest is Test {
         UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
 
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
         uint256 postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
         assertTrue(
             postOpBalance == initialBalance
@@ -296,7 +297,7 @@ contract VerifyingPaymasterTest is Test {
 
         // Simulate an invalid bundler 
         vm.expectRevert(); 
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
     }
 
     function test_receive_success() public {
