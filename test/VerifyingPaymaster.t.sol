@@ -60,6 +60,24 @@ contract VerifyingPaymasterTest is Test {
         paymaster.renounceOwnership();
     }
 
+    function test_setPendingAndRotateVerifyingSigner_success() public {
+        address newSigner = address(0xABCD);
+
+        paymaster.setPendingVerifyingSigner(newSigner);
+
+        assertEq(paymaster.pendingVerifyingSigner(), newSigner, "pending signer not stored");
+
+        paymaster.rotateVerifyingSigner();
+
+        assertEq(paymaster.verifyingSigner(), newSigner, "verifying signer not rotated");
+        assertEq(paymaster.pendingVerifyingSigner(), address(0), "pending signer not cleared");
+    }
+
+    function test_rotateVerifyingSigner_reverts_whenNoPendingSigner() public {
+        vm.expectRevert(abi.encodeWithSelector(VerifyingPaymaster.NoPendingSigner.selector));
+        paymaster.rotateVerifyingSigner();
+    }
+
     function test_getHash_isCorrect() public view {
         UserOperation memory userOp = createUserOp();
         VerifyingPaymaster.PaymasterData memory paymasterData = createPaymasterData();

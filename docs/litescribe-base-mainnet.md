@@ -51,6 +51,13 @@ forge script script/Deploy.s.sol:DeployScript --rpc-url $env:RPC_URL --broadcast
    - `BASE_PAYMASTER_TOKEN_RECEIVER_ADDRESS`
 4. Point the extension paymaster URL at the self-hosted paymaster RPC service.
 
+## Current Litescribe Deployment
+
+- Paymaster contract: `0xdcAce6220e4Fb37CF91684c87f5164CDA675C366`
+- Deployment transaction: `0x5ad99e880be3c27e4b971f8ef9ce7768507764c47359dc96bb0954b2e4dde050`
+
+Deployment broadcast artifacts remain local-only and are not intended to be pushed upstream.
+
 ## Litescribe Policy Expectations
 
 The off-chain paymaster service should stay narrow:
