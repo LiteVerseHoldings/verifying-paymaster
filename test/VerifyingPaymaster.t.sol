@@ -2,33 +2,27 @@
 pragma solidity ^0.8.23;
 
 import {Test, console} from "forge-std/Test.sol";
-
 import {VerifyingPaymaster} from "../src/VerifyingPaymaster.sol";
 import {IEntryPoint} from "@account-abstraction/interfaces/IEntryPoint.sol";
-import {UserOperationLib} from "@account-abstraction/core/UserOperationLib.sol";
-import {PackedUserOperation} from "@account-abstraction/interfaces/PackedUserOperation.sol";
+import {IStakeManager} from "@account-abstraction/interfaces/IStakeManager.sol";
 import {EntryPoint} from "@account-abstraction/core/EntryPoint.sol";
-import {SimpleAccountFactory, SimpleAccount} from "@account-abstraction/samples/SimpleAccountFactory.sol";
-import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-
-import {MockERC20} from "./MockERC20.sol";
-
+import {UserOperation} from "@account-abstraction/interfaces/UserOperation.sol";
+import {SimpleAccountFactory} from "@account-abstraction/samples/SimpleAccountFactory.sol";
+import {SimpleAccount} from "@account-abstraction/samples/SimpleAccount.sol";
+import {MockERC20} from "./MockERC20.sol"; // Include the mock ERC20 token contract
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract VerifyingPaymasterTest is Test {
-    using UserOperationLib for PackedUserOperation;
-
     EntryPoint public entrypoint;
     VerifyingPaymaster public paymaster;
     SimpleAccount public account;
     MockERC20 public mockToken;
-    
 
     uint48 constant MOCK_VALID_UNTIL = 281474976710655;
     uint48 constant MOCK_VALID_AFTER = 0;
     uint48 constant MOCK_POST_OP_GAS_OVERHEAD = 24_000;
     uint128 constant MOCK_SPONSOR_ID = 1;
+    bool constant MOCK_ALLOW_ANY_BUNDLER = true;
     address constant MOCK_TOKEN_ADDRESS = address(0x1234);
     address constant MOCK_TOKEN_RECEIVER = address(0x5678);
     uint256 constant MOCK_TOKEN_EXCHANGE_RATE = 1e18;
@@ -41,6 +35,7 @@ contract VerifyingPaymasterTest is Test {
     address constant ACCOUNT_OWNER = 0x39c0Bb04Bf6B779ac994f6A5211204e3Dbe16741;
     uint256 constant ACCOUNT_OWNER_KEY =
         0x4034df11fcc455209edcb8948449a4dff732376dab6d03dc2d099d0084b0f023;
+    address constant BENEFICIARY = address(0xBEEF);
 
     function setUp() public {
         entrypoint = new EntryPoint();
@@ -56,7 +51,7 @@ contract VerifyingPaymasterTest is Test {
     }
 
     function test_constructor_reverts_whenEntryPointNotAContract() public {
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(VerifyingPaymaster.InvalidEntryPoint.selector));
         new VerifyingPaymaster(IEntryPoint(address(0x1234)), PAYMASTER_SIGNER, address(this));
     }
 
@@ -65,26 +60,61 @@ contract VerifyingPaymasterTest is Test {
         paymaster.renounceOwnership();
     }
 
+    function test_setPendingAndRotateVerifyingSigner_success() public {
+        address newSigner = address(0xABCD);
+
+        paymaster.setPendingVerifyingSigner(newSigner);
+
+        assertEq(paymaster.pendingVerifyingSigner(), newSigner, "pending signer not stored");
+
+        paymaster.rotateVerifyingSigner();
+
+        assertEq(paymaster.verifyingSigner(), newSigner, "verifying signer not rotated");
+        assertEq(paymaster.pendingVerifyingSigner(), address(0), "pending signer not cleared");
+    }
+
+    function test_rotateVerifyingSigner_reverts_whenNoPendingSigner() public {
+        vm.expectRevert(abi.encodeWithSelector(VerifyingPaymaster.NoPendingSigner.selector));
+        paymaster.rotateVerifyingSigner();
+    }
+
+    function test_setPendingVerifyingSigner_reverts_whenCallerIsNotOwner() public {
+        vm.prank(ACCOUNT_OWNER);
+        vm.expectRevert();
+        paymaster.setPendingVerifyingSigner(address(0xABCD));
+    }
+
+    function test_updateBundlerAllowlist_reverts_whenCallerIsNotOwner() public {
+        vm.prank(ACCOUNT_OWNER);
+        vm.expectRevert();
+        paymaster.updateBundlerAllowlist(address(0xABCD), true);
+    }
+
+    function test_ownerWithdrawERC20_reverts_whenCallerIsNotOwner() public {
+        mockToken.mint(address(paymaster), 1 ether);
+
+        vm.prank(ACCOUNT_OWNER);
+        vm.expectRevert();
+        paymaster.ownerWithdrawERC20(address(mockToken), ACCOUNT_OWNER, 1 ether);
+    }
+
     function test_getHash_isCorrect() public view {
-        PackedUserOperation memory userOp = createUserOp();
-        userOp.sender = 0x20D80a97f40470Ed1c114335061d54eC29c65dCD;
+        UserOperation memory userOp = createUserOp();
         VerifyingPaymaster.PaymasterData memory paymasterData = createPaymasterData();
         
         bytes32 hash = paymaster.getHash(
             userOp,
-            paymasterData,
-            20000,
-            10000
+            paymasterData
         );
         // Replace with the expected hash value
         assertEq(
             hash,
-            0x70442f07dffa945904a885c0a2ad4af27565d7ce957dbc12ac21de82c0405ce6
+            0xb1b9edbb914bf8387344bcba22a3a8d42dcae423cdfa707036495f64e12bd490
         );
     }
 
     function test_validatePaymasterUserOp_success_whenUserOpValidSignature() public {
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         addPaymasterData(userOp, true, address(0), false);
         signUserOp(userOp);
 
@@ -97,28 +127,24 @@ contract VerifyingPaymasterTest is Test {
     }
 
     function test_validatePaymasterUserOp_reverts_WhenUserOpHasWrongSigner() public {
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         VerifyingPaymaster.PaymasterData memory paymasterData = createPaymasterData();
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
             ACCOUNT_OWNER_KEY,
-            MessageHashUtils.toEthSignedMessageHash(
+            ECDSA.toEthSignedMessageHash(
                 paymaster.getHash(
                     userOp,
-                    paymasterData,
-                    100000,
-                    100000
+                    paymasterData
                 )
             )
         );
         userOp.paymasterAndData = abi.encodePacked(
             address(paymaster),
-            uint128(100000),
-            uint128(100000),
             MOCK_VALID_UNTIL,
             MOCK_VALID_AFTER,
             MOCK_SPONSOR_ID,
-            true,
+            MOCK_ALLOW_ANY_BUNDLER,
             false,
             false,
             MOCK_TOKEN_ADDRESS,
@@ -138,17 +164,15 @@ contract VerifyingPaymasterTest is Test {
     }
 
     function test_validatePaymasterUserOp_reverts_whenUserOpHasNoSignature() public {
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         
         userOp.paymasterAndData = abi.encodePacked(
             address(paymaster),
-            uint128(100000),
-            uint128(100000),
             abi.encodePacked(
                 MOCK_VALID_UNTIL,
                 MOCK_VALID_AFTER,
                 MOCK_SPONSOR_ID,
-                true,
+                MOCK_ALLOW_ANY_BUNDLER,
                 false,
                 false,
                 MOCK_TOKEN_ADDRESS,
@@ -164,16 +188,14 @@ contract VerifyingPaymasterTest is Test {
     }
 
     function test_validatePaymasterUserOp_reverts_whenUserOpHasInvalidSignature() public {
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         userOp.paymasterAndData = abi.encodePacked(
             address(paymaster),
-            uint128(100000),
-            uint128(100000),
             abi.encodePacked(
                 MOCK_VALID_UNTIL,
                 MOCK_VALID_AFTER,
                 MOCK_SPONSOR_ID,
-                true,
+                MOCK_ALLOW_ANY_BUNDLER,
                 false,
                 false,
                 MOCK_TOKEN_ADDRESS,
@@ -188,24 +210,24 @@ contract VerifyingPaymasterTest is Test {
         signUserOp(userOp);
 
         vm.prank(address(entrypoint));
-        vm.expectRevert(abi.encodeWithSelector(ECDSA.ECDSAInvalidSignature.selector));
+        vm.expectRevert("ECDSA: invalid signature");
         paymaster.validatePaymasterUserOp(userOp, MOCK_HASH , 256);
     }
 
     // Non-erc20 sponsorship
     function test_entrypointHandleOps_successForStandardSponsorship() public {        
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         addPaymasterData(userOp, true, address(0), false);
         signUserOp(userOp);
 
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
     }
 
     function test_entrypointHandleOps_success_forERC20SponsorshipInPostOp() public {
         uint256 initialBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         bytes memory approveCallData = abi.encodeWithSelector(
             mockToken.approve.selector,
             paymaster,
@@ -217,9 +239,9 @@ contract VerifyingPaymasterTest is Test {
 
         signUserOp(userOp);
 
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
 
         uint256 postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
@@ -229,16 +251,16 @@ contract VerifyingPaymasterTest is Test {
     }
 
     function test_entrypointHandleOps_reverts_ForERC20SponsorshipInValidationIfCantPay() public {
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         addPaymasterData(userOp, true, address(mockToken), true);
 
         signUserOp(userOp);
 
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
 
         vm.expectRevert(); 
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
     }
 
     function test_entrypointHandleOps_success_ForERC20SponsorshipInValidationIfPrepaymentRequired() public {
@@ -246,7 +268,7 @@ contract VerifyingPaymasterTest is Test {
         (bool success, ) = address(account).call{value: 1 ether}("");
         assertTrue(success);
         uint256 initialBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         bytes memory approveCallData = abi.encodeWithSelector(
             mockToken.approve.selector,
             paymaster,
@@ -257,9 +279,9 @@ contract VerifyingPaymasterTest is Test {
 
         signUserOp(userOp);
 
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
 
         uint256 postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
@@ -274,7 +296,7 @@ contract VerifyingPaymasterTest is Test {
 
         signUserOp(userOp);
         ops[0] = userOp;
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
 
         postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
@@ -286,34 +308,34 @@ contract VerifyingPaymasterTest is Test {
         );
     }
 
-    function test_entrypointHandleOps_reverts_ifBundlerNotOnAllowlist() public {
-        PackedUserOperation memory userOp = createUserOp();
-        addPaymasterData(userOp, false, address(0), false);
-        signUserOp(userOp);
-
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
-        ops[0] = userOp;
-
-        // Simulate an invalid bundler 
-        vm.expectRevert(); 
-        entrypoint.handleOps(ops, payable(address(12)));
-    }
-
     function test_entrypointHandleOps_failedERC20TransferInPostOp_DoesNotRevert() public {
         uint256 initialBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
 
-        PackedUserOperation memory userOp = createUserOp();
+        UserOperation memory userOp = createUserOp();
         addPaymasterData(userOp, true, address(mockToken), false);
         signUserOp(userOp);
 
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
 
-        entrypoint.handleOps(ops, payable(address(12)));
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
         uint256 postOpBalance = mockToken.balanceOf(MOCK_TOKEN_RECEIVER);
         assertTrue(
             postOpBalance == initialBalance
         );
+    }
+
+    function test_entrypointHandleOps_reverts_ifBundlerNotOnAllowlist() public {
+        UserOperation memory userOp = createUserOp();
+        addPaymasterData(userOp, false, address(0), false);
+        signUserOp(userOp);
+
+        UserOperation[] memory ops = new UserOperation[](1);
+        ops[0] = userOp;
+
+        // Simulate an invalid bundler 
+        vm.expectRevert(); 
+        entrypoint.handleOps(ops, payable(BENEFICIARY));
     }
 
     function test_receive_success() public {
@@ -326,17 +348,19 @@ contract VerifyingPaymasterTest is Test {
 
     /* Helper functions */
 
-    function createUserOp() public view returns (PackedUserOperation memory) {
-        PackedUserOperation memory userOp;
+    function createUserOp() public view returns (UserOperation memory) {
+        UserOperation memory userOp;
         userOp.sender = address(account);
-        userOp.accountGasLimits = bytes32(abi.encodePacked(bytes16(uint128(80000)), bytes16(uint128(50000))));
-        userOp.gasFees = bytes32(abi.encodePacked(bytes16(uint128(100)), bytes16(uint128(1000000000))));
+        userOp.verificationGasLimit = 100000;
+        userOp.maxPriorityFeePerGas = 100000;
+        userOp.maxFeePerGas = 100000;
         userOp.preVerificationGas = 100000;
-
+        userOp.verificationGasLimit = 100000;
+        userOp.callGasLimit = 100000;
         return userOp;
     }
 
-    function addPaymasterData(PackedUserOperation memory userOp, bool anyBundler, address token, bool prepay) public view {
+    function addPaymasterData(UserOperation memory userOp, bool anyBundler, address token, bool prepay) public view {
         VerifyingPaymaster.PaymasterData memory paymasterData = createPaymasterData();
         paymasterData.allowAnyBundler = anyBundler;
         paymasterData.token = token;
@@ -344,20 +368,16 @@ contract VerifyingPaymasterTest is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
             PAYMASTER_SIGNER_KEY,
-            MessageHashUtils.toEthSignedMessageHash(
+            ECDSA.toEthSignedMessageHash(
                 paymaster.getHash(
                     userOp,
-                    paymasterData,
-                    100000,
-                    100000
+                    paymasterData
                 )
             )
         );
 
         userOp.paymasterAndData = abi.encodePacked(
             address(paymaster),
-            uint128(100000),
-            uint128(100000),
             abi.encodePacked(
                 paymasterData.validUntil,
                 paymasterData.validAfter,
@@ -378,10 +398,10 @@ contract VerifyingPaymasterTest is Test {
 
    
 
-    function signUserOp(PackedUserOperation memory userOp) public view {
+    function signUserOp(UserOperation memory userOp) public view {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
             ACCOUNT_OWNER_KEY,
-            MessageHashUtils.toEthSignedMessageHash(entrypoint.getUserOpHash(userOp))
+            ECDSA.toEthSignedMessageHash(entrypoint.getUserOpHash(userOp))
         );
         userOp.signature = abi.encodePacked(r, s, v);
     }
@@ -391,7 +411,7 @@ contract VerifyingPaymasterTest is Test {
             MOCK_VALID_UNTIL,
             MOCK_VALID_AFTER,
             MOCK_SPONSOR_ID,
-            true,
+            MOCK_ALLOW_ANY_BUNDLER,
             false,
             false,
             MOCK_TOKEN_ADDRESS,

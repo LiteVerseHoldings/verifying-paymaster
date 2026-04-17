@@ -33,8 +33,9 @@ This repository contains a verifying paymaster implementation for EIP-4337 (Acco
 
 ## Additional Documentation
 
-- [Attack Vector Mitigations](./docs/attack-vector-mitigations.md)
-- [Usage](./docs/usage.md)
+- [Attack Vector Mitigations](./attack-vector-mitigations.md)
+- [Usage](./usage.md)
+- [Litescribe Base Mainnet Deployment](./litescribe-base-mainnet.md)
 
 ## License
 
