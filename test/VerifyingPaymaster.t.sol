@@ -78,6 +78,26 @@ contract VerifyingPaymasterTest is Test {
         paymaster.rotateVerifyingSigner();
     }
 
+    function test_setPendingVerifyingSigner_reverts_whenCallerIsNotOwner() public {
+        vm.prank(ACCOUNT_OWNER);
+        vm.expectRevert();
+        paymaster.setPendingVerifyingSigner(address(0xABCD));
+    }
+
+    function test_updateBundlerAllowlist_reverts_whenCallerIsNotOwner() public {
+        vm.prank(ACCOUNT_OWNER);
+        vm.expectRevert();
+        paymaster.updateBundlerAllowlist(address(0xABCD), true);
+    }
+
+    function test_ownerWithdrawERC20_reverts_whenCallerIsNotOwner() public {
+        mockToken.mint(address(paymaster), 1 ether);
+
+        vm.prank(ACCOUNT_OWNER);
+        vm.expectRevert();
+        paymaster.ownerWithdrawERC20(address(mockToken), ACCOUNT_OWNER, 1 ether);
+    }
+
     function test_getHash_isCorrect() public view {
         UserOperation memory userOp = createUserOp();
         VerifyingPaymaster.PaymasterData memory paymasterData = createPaymasterData();
